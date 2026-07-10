@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Aegis — Corrode</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.179.1/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.179.1/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+
+<div id="game"></div>
+
+<!-- ================= MENU ================= -->
+<div id="menuScreen" class="screen">
+  <div class="wrap">
+    <div class="title">Project Aegis</div>
+    <div class="eyebrow">Corrode · Tactical 5v5</div>
+
+    <div class="panel card">
+      <div class="tabs">
+        <div class="tab active" data-tab="solo">Bots</div>
+        <div class="tab" data-tab="online">Online</div>
+        <div class="tab" data-tab="custom">Custom</div>
+      </div>
+
+      <label>Callsign</label>
+      <input type="text" id="nameInput" maxlength="14" placeholder="Enter your name">
+
+      <div id="teamRow">
+        <label>Team</label>
+        <div class="choice">
+          <div class="active attack" data-team="Attack">Attack</div>
+          <div data-team="Defense">Defense</div>
+        </div>
+      </div>
+
+      <label>Map</label>
+      <div class="choice">
+        <div class="active" data-map="corrode">Corrode</div>
+        <div data-map="rustline">Rustline</div>
+        <div data-map="outpost">Outpost</div>
+      </div>
+
+      <!-- Online-only -->
+      <div id="onlinePanel" class="hidden">
+        <label>Room Code</label>
+        <input type="text" id="roomInput" maxlength="8" style="text-transform:uppercase" placeholder="e.g. FOX21">
+      </div>
+
+      <!-- Custom-only -->
+      <div id="customPanel" class="hidden">
+        <label>Bot Count <span class="rangeval" id="botCountVal">6</span></label>
+        <input type="range" id="botCount" min="0" max="10" value="6">
+        <label>Bot Difficulty <span class="rangeval" id="botDiffVal">Normal</span></label>
+        <input type="range" id="botDiff" min="0" max="2" value="1" step="1">
+        <label>Round Time (min) <span class="rangeval" id="roundTimeVal">3</span></label>
+        <input type="range" id="roundTime" min="1" max="6" value="3">
+        <label>Mode</label>
+        <div class="choice">
+          <div class="active" data-custom-mode="spike">Spike Plant</div>
+          <div data-custom-mode="deathmatch">Deathmatch</div>
+        </div>
+      </div>
+
+      <button class="btn" id="startBtn">Drop In</button>
+      <div class="hint">
+        <b>WASD</b> move · <b>Shift</b> sprint · <b>Space</b> jump · <b>R</b> reload · <b>E</b> plant/defuse · <b>B</b> buy menu (near spawn) · <b>Esc</b> pause<br>
+        Online rooms sync live over the game server — share your room code with friends to squad up.
+      </div>
+    </div>
+  </div>
+
+  <div id="settingsBtn" title="Settings">⚙</div>
+</div>
+
+<!-- ================= SETTINGS ================= -->
+<div id="settingsScreen" class="screen hidden">
+  <div class="panel card">
+    <div class="title" style="font-size:1.6rem;">Settings</div>
+    <label>Mouse Sensitivity <span class="rangeval" id="sensVal">2.0</span></label>
+    <input type="range" id="sensSlider" min="0.5" max="5" step="0.1" value="2.0">
+    <label>Field of View <span class="rangeval" id="fovVal">75</span></label>
+    <input type="range" id="fovSlider" min="60" max="100" value="75">
+    <label>Master Volume <span class="rangeval" id="volVal">80</span></label>
+    <input type="range" id="volSlider" min="0" max="100" value="80">
+    <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
+      <span>Auto-Fire All Weapons</span>
+      <input type="checkbox" id="autoFireAll" style="width:auto; accent-color:var(--gold);">
+    </label>
+    <button class="btn ghost" id="closeSettings">Back</button>
+  </div>
+</div>
+
+<!-- ================= PAUSE ================= -->
+<div id="pauseOverlay" class="hidden">
+  <div class="panel card" style="text-align:center;">
+    <div class="title" style="font-size:1.8rem;">Paused</div>
+    <div id="pauseStats" style="font-size:0.9rem; color:var(--muted); margin:10px 0;"></div>
+    <button class="btn" id="resumeBtn">Resume</button>
+    <button class="btn ghost" id="quitBtn">Quit to Menu</button>
+  </div>
+</div>
+
+<!-- ================= HUD ================= -->
+<div id="hud" class="hidden">
+  <div id="crosshair"></div>
+  <div id="hitMarker"></div>
+  <div id="damageFlash"></div>
+
+  <div id="healthWrap">
+    <div class="barlabel">Integrity</div>
+    <div class="barOuter"><div id="healthBar"></div></div>
+    <div id="ammoText">30<span>/∞</span></div>
+  </div>
+
+  <div id="buyHint" class="hidden" style="position:absolute; bottom:150px; left:50%; transform:translateX(-50%); font-size:0.85rem; color:var(--gold); letter-spacing:0.08em;">
+    <span class="key">B</span> Open Buy Menu
+  </div>
+
+  <div id="buyMenu" class="hidden" style="position:absolute; inset:0; pointer-events:auto; display:flex; align-items:center; justify-content:center; background:rgba(6,8,12,0.75);">
+    <div class="panel card" style="width:min(480px,92vw);">
+      <div class="title" style="font-size:1.5rem;">Buy Station</div>
+      <div id="buyMoneyText" style="margin:4px 0 16px; color:var(--gold); font-size:1rem; letter-spacing:0.05em;">$800</div>
+      <div id="buyList" style="display:flex; flex-direction:column; gap:8px;"></div>
+      <button class="btn ghost" id="closeBuyMenu" style="margin-top:18px;">Close (B)</button>
+    </div>
+  </div>
+
+  <div id="topBar">
+    <div id="roundTimer">03:00</div>
+    <div id="bombStatus"></div>
+  </div>
+
+  <div id="scorePanel">
+    <div id="killsText">0 KILLS</div>
+    <div id="moneyText">$800</div>
+    <div id="roomTag"></div>
+  </div>
+
+  <div id="killfeed"></div>
+
+  <div id="actionPrompt" class="hidden">
+    <div><span class="key">E</span> <span id="actionLabel">Plant Spike</span></div>
+    <div id="progressOuter"><div id="progressBar"></div></div>
+  </div>
+
+  <div id="centerMsg"></div>
+  <div id="reloadMsg">RELOADING...</div>
+  <div class="footer-hint">Esc to pause</div>
+</div>
+
+<script type="module" src="{{ url_for('static', filename='js/game.js') }}"></script>
+</body>
+</html>
